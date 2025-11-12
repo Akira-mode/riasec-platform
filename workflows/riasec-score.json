@@ -1,0 +1,412 @@
+{
+  "name": "RIASEC Score",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "riasec-score",
+        "responseMode": "lastNode",
+        "options": {
+          "responseData": {
+            "responseContentType": "application/json"
+          }
+        }
+      },
+      "id": "b5d06861-41f7-4a52-986c-3b918fcb1de4",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-1200, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{($env.API_BASE_URL || 'http://api:3000/api') + '/assessments/' + ($json.body.assessmentId || $json.assessmentId) + '/score'}}",
+        "responseFormat": "json",
+        "options": {
+          "timeout": 30
+        }
+      },
+      "id": "d1f7b2b6-1a77-4142-b9db-bbc70d786f3e",
+      "name": "Fetch Assessment Score",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-980, 200]
+    },
+    {
+      "parameters": {
+        "functionCode": "const payload = $json.data || $json || {};\nconst answers = ($json.body && $json.body.answers) || $json.answers || [];\nconst user = payload.user || $json.body?.user || {};\nconst scores = payload.scores || {};\nconst normalized = payload.normalized || {};\nconst top3 = payload.top3 || [];\nlet lowest = { dimension: 'R', value: 100 };\nfor (const [dimension, value] of Object.entries(normalized)) {\n  const numeric = typeof value === 'number' ? value : Number(value) || 0;\n  if (numeric < lowest.value) {\n    lowest = { dimension, value: numeric };\n  }\n}\nconst shouldAlertCoach = lowest.value < 30;\nreturn [{\n  json: {\n    assessmentId: payload.assessmentId || $json.body?.assessmentId || $json.assessmentId,\n    answers,\n    scores,\n    normalized,\n    top3,\n    profileCode: payload.profileCode || '',\n    user,\n    shouldAlertCoach,\n    lowestDimension: lowest,\n    receivedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "269f0c16-646a-4a47-93f4-9153acc887c3",
+      "name": "Prepare Score Payload",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [-740, 200]
+    },
+    {
+      "parameters": {
+        "query": "INSERT INTO \"RiasecResult\" (\n  \"id\",\n  \"assessmentId\",\n  \"scoreR\",\n  \"scoreI\",\n  \"scoreA\",\n  \"scoreS\",\n  \"scoreE\",\n  \"scoreC\",\n  \"normalizedR\",\n  \"normalizedI\",\n  \"normalizedA\",\n  \"normalizedS\",\n  \"normalizedE\",\n  \"normalizedC\",\n  \"top3\",\n  \"profileCode\",\n  \"createdAt\",\n  \"updatedAt\"\n) VALUES (\n  '{{$json.assessmentId}}',\n  '{{$json.assessmentId}}',\n  {{$json.scores.R || 0}},\n  {{$json.scores.I || 0}},\n  {{$json.scores.A || 0}},\n  {{$json.scores.S || 0}},\n  {{$json.scores.E || 0}},\n  {{$json.scores.C || 0}},\n  {{$json.normalized.R || 0}},\n  {{$json.normalized.I || 0}},\n  {{$json.normalized.A || 0}},\n  {{$json.normalized.S || 0}},\n  {{$json.normalized.E || 0}},\n  {{$json.normalized.C || 0}},\n  ARRAY['{{$json.top3[0] || ''}}','{{$json.top3[1] || ''}}','{{$json.top3[2] || ''}}'],\n  '{{$json.profileCode}}',\n  NOW(),\n  NOW()\n)\nON CONFLICT (\"assessmentId\") DO UPDATE SET\n  \"scoreR\" = EXCLUDED.\"scoreR\",\n  \"scoreI\" = EXCLUDED.\"scoreI\",\n  \"scoreA\" = EXCLUDED.\"scoreA\",\n  \"scoreS\" = EXCLUDED.\"scoreS\",\n  \"scoreE\" = EXCLUDED.\"scoreE\",\n  \"scoreC\" = EXCLUDED.\"scoreC\",\n  \"normalizedR\" = EXCLUDED.\"normalizedR\",\n  \"normalizedI\" = EXCLUDED.\"normalizedI\",\n  \"normalizedA\" = EXCLUDED.\"normalizedA\",\n  \"normalizedS\" = EXCLUDED.\"normalizedS\",\n  \"normalizedE\" = EXCLUDED.\"normalizedE\",\n  \"normalizedC\" = EXCLUDED.\"normalizedC\",\n  \"top3\" = EXCLUDED.\"top3\",\n  \"profileCode\" = EXCLUDED.\"profileCode\",\n  \"updatedAt\" = NOW();"
+      },
+      "id": "02b26d21-8427-41ff-8612-2746b5fdd473",
+      "name": "Save RIASEC Result",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [-480, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-riasec",
+          "name": "Postgres RIASEC"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const data = $json;\nconst userName = data.user?.name || data.user?.firstName || 'Bonjour';\nconst normalized = data.normalized || {};\nconst rows = Object.entries(normalized)\n  .map(([dimension, value]) => `<mj-text font-size=\"16px\"><strong>${dimension}</strong> : ${(typeof value === 'number' ? value.toFixed(1) : value)}%</mj-text>`)\n  .join('');\nconst top3 = data.top3?.join(' - ') || 'Non déterminé';\nconst mjml = `\n<mjml>\n  <mj-body background-color=\"#f4f4f4\">\n    <mj-section background-color=\"#ffffff\" padding=\"20px\">\n      <mj-column>\n        <mj-text font-size=\"22px\" font-weight=\"bold\">Résultats RIASEC - ${data.profileCode}</mj-text>\n        <mj-text font-size=\"16px\">${userName}, voici vos résultats détaillés.</mj-text>\n        <mj-divider border-width=\"1px\" border-color=\"#94a3b8\"></mj-divider>\n        <mj-text font-size=\"18px\" font-weight=\"bold\">Top 3 : ${top3}</mj-text>\n        ${rows || '<mj-text>Aucune donnée de score.</mj-text>'}\n        <mj-divider border-width=\"1px\" border-color=\"#94a3b8\"></mj-divider>\n        <mj-text font-size=\"14px\">Découvrez des activités recommandées sur SAINA selon votre profil.</mj-text>\n      </mj-column>\n    </mj-section>\n  </mj-body>\n</mjml>`;\nreturn [{ json: { ...data, mjml } }];"
+      },
+      "id": "6890b30f-df2d-46cd-bb86-b59c88260873",
+      "name": "Build MJML",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [-240, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://api.mjml.io/v1/render",
+        "method": "POST",
+        "jsonParameters": true,
+        "responseFormat": "json",
+        "bodyParametersJson": "={\"mjml\": $json.mjml, \"minify\": true}"
+      },
+      "id": "27e801c8-ff31-4bf9-9dfa-68ebd9e4b75e",
+      "name": "Render MJML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 200],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "mjml-api-creds",
+          "name": "MJML API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const html = $json.html || $json.data?.html || '';\nconst buffer = Buffer.from(html, 'utf8');\nconst profileCode = $json.profileCode || 'riasec';\nreturn [{\n  json: $json,\n  binary: {\n    'riasec-profile.pdf': {\n      data: buffer.toString('base64'),\n      mimeType: 'application/pdf',\n      fileExtension: 'pdf',\n      fileName: `riasec-profile-${profileCode}.pdf`\n    }\n  }\n}];"
+      },
+      "id": "06c287e9-9437-4c7d-a343-41317ad8b0d1",
+      "name": "Create PDF",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [240, 200]
+    },
+    {
+      "parameters": {
+        "subject": "Vos résultats RIASEC - {{$json.profileCode}}",
+        "text": "Bonjour {{$json.user.email}},\n\nVotre profil RIASEC est : {{$json.profileCode}} (Top 3 : {{$json.top3.join(', ')}}).\nRetrouvez le détail dans le PDF joint et connectez-vous à SAINA pour aller plus loin.\n\nL'équipe SAINA",
+        "html": "<p>Bonjour {{$json.user.email}},</p><p>Votre profil RIASEC est <strong>{{$json.profileCode}}</strong> (Top 3 : {{$json.top3.join(', ')}}).</p><p>Le rapport détaillé est joint en pièce jointe. Rendez-vous sur SAINA pour découvrir vos prochaines étapes.</p>",
+        "attachments": ["riasec-profile.pdf"],
+        "options": {
+          "fromEmail": "noreply@saina.example",
+          "fromName": "SAINA"
+        }
+      },
+      "id": "2bff876e-0077-4528-ad2b-5ed29b0fd7a9",
+      "name": "Send Result Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [480, 200],
+      "credentials": {
+        "sendGridApi": {
+          "id": "sendgrid-api",
+          "name": "SendGrid"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.shouldAlertCoach}}"
+            }
+          ]
+        }
+      },
+      "id": "4a89a8fb-1c53-4f24-b4bb-d67b745093fd",
+      "name": "Should Alert Coach?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 80]
+    },
+    {
+      "parameters": {
+        "text": "Nouvelle évaluation RIASEC pour {{$json.user.email}}\nProfil : {{$json.profileCode}}\nDimension la plus faible : {{$json.lowestDimension.dimension}} ({{$json.lowestDimension.value}})",
+        "channel": "#coaching-alerts"
+      },
+      "id": "dcc603cf-cea8-4ae8-afb1-a7713ac6513d",
+      "name": "Slack Coach Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [980, 40],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-coach",
+          "name": "Slack Coach"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "responseData": "={{ { status: 'ok', assessmentId: $json.assessmentId, profileCode: $json.profileCode } }}",
+        "responseCode": 200,
+        "responseMode": "lastNode"
+      },
+      "id": "e3c6b32a-63d5-4fd9-8f2b-3da5f5cfdb20",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [720, 340]
+    },
+    {
+      "parameters": {
+        "workflowId": ""
+      },
+      "id": "1c07b6e9-9e1d-401c-bf03-a0cd67fd2547",
+      "name": "Catch Error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [-960, -120]
+    },
+    {
+      "parameters": {
+        "functionCode": "const attempt = ($json.retryAttempt || 0) + 1;\nconst body = $json.lastNode?.json?.body || $json.lastNode?.json || {};\nconst canRetry = attempt <= 3;\nreturn [{ json: { attempt, canRetry, payload: body } }];"
+      },
+      "id": "2efd1abb-4ca6-4ac8-afee-5cf997388847",
+      "name": "Prepare Retry",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [-720, -120]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.canRetry}}"
+            }
+          ]
+        }
+      },
+      "id": "a8fb7241-acde-427c-acde-0a896299b2c2",
+      "name": "Retry Available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-520, -120]
+    },
+    {
+      "parameters": {
+        "seconds": 10
+      },
+      "id": "cb4ef693-7b42-4660-9b7f-a0b7c9afbf5f",
+      "name": "Wait 10s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 2,
+      "position": [-320, -200]
+    },
+    {
+      "parameters": {
+        "url": "={{($env.N8N_BASE_URL || 'http://n8n:5678') + '/webhook/riasec-score'}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "responseFormat": "json",
+        "bodyParametersJson": "={{$json.payload}}"
+      },
+      "id": "9b47f153-3a01-4c51-b66d-279bf62b44cc",
+      "name": "Retry Original Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-120, -200]
+    },
+    {
+      "parameters": {
+        "text": "Workflow RIASEC Score en échec définitif après 3 tentatives. Dernière erreur : {{$json.error?.message || 'non fournie'}}",
+        "channel": "#coaching-alerts"
+      },
+      "id": "2b2c1327-88f1-4a39-b304-98b88674a7df",
+      "name": "Notify Failure",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [-320, -40],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-coach",
+          "name": "Slack Coach"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Assessment Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Assessment Score": {
+      "main": [
+        [
+          {
+            "node": "Prepare Score Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Score Payload": {
+      "main": [
+        [
+          {
+            "node": "Save RIASEC Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save RIASEC Result": {
+      "main": [
+        [
+          {
+            "node": "Build MJML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build MJML": {
+      "main": [
+        [
+          {
+            "node": "Render MJML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render MJML": {
+      "main": [
+        [
+          {
+            "node": "Create PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create PDF": {
+      "main": [
+        [
+          {
+            "node": "Send Result Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Result Email": {
+      "main": [
+        [
+          {
+            "node": "Should Alert Coach?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Alert Coach?": {
+      "main": [
+        [
+          {
+            "node": "Slack Coach Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Catch Error": {
+      "main": [
+        [
+          {
+            "node": "Prepare Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Retry": {
+      "main": [
+        [
+          {
+            "node": "Retry Available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Available?": {
+      "main": [
+        [
+          {
+            "node": "Wait 10s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10s": {
+      "main": [
+        [
+          {
+            "node": "Retry Original Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "regular"
+  },
+  "staticData": {},
+  "tags": []
+}

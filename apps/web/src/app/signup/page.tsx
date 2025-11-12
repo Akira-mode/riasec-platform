@@ -1,7 +1,12 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useState } from 'react';
 import Link from 'next/link';
+import { ApiEndpoints } from '../../lib/api/endpoints';
+import {
+  ApiClientError,
+  backendApiClient,
+} from '../../lib/api/http-client';
 
 type AgeBracket = '15-18' | '19-25' | '26-35' | '36+';
 type Role = 'etudiant' | 'coach' | 'admin';
@@ -36,42 +41,35 @@ export default function SignupPage() {
   const [ageBracket, setAgeBracket] = useState<AgeBracket>('19-25');
   const [role, setRole] = useState<Role>('etudiant');
 
-  const apiBase = useMemo(() => {
-    const raw = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
-    const trimmed = raw.replace(/\/$/, '');
-    const base = trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
-    return base;
-  }, []);
-
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setState({ status: 'loading', message: null });
 
     try {
-      const response = await fetch(`${apiBase}/auth/signup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password, ageBracket, role }),
-      });
+      const response = await backendApiClient.post(
+        ApiEndpoints.backend.auth.signup,
+        { email, password, ageBracket, role }
+      );
 
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        const message =
-          typeof payload.message === 'string'
-            ? payload.message
-            : Array.isArray(payload.message)
-            ? payload.message.join(', ')
-            : "L'inscription a échoué. Réessayez.";
-        setState({ status: 'error', message });
+      const payload = response.data as { message?: string };
+      setState({
+        status: 'success',
+        message:
+          payload?.message ??
+          'Inscription réussie. Vérifiez vos emails pour activer votre compte.',
+      });
+      setPassword('');
+    } catch (error: unknown) {
+      if (error instanceof ApiClientError) {
+        setState({
+          status: 'error',
+          message:
+            error.message ||
+            "L'inscription a échoué. Réessayez.",
+        });
         return;
       }
 
-      const { message } = await response.json();
-      setState({ status: 'success', message });
-      setPassword('');
-    } catch (error) {
       setState({
         status: 'error',
         message:

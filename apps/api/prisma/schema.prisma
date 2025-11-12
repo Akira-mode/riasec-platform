@@ -13,6 +13,28 @@ enum Role {
   admin
 }
 
+enum Dimension {
+  R
+  I
+  A
+  S
+  E
+  C
+}
+
+enum AssessmentStatus {
+  STARTED
+  COMPLETED
+  ABANDONED
+}
+
+enum AgeBracket {
+  COLLEGIAN
+  LYCEEN
+  UNIVERSITAIRE
+  ADULTE
+}
+
 model User {
   id               String   @id @default(cuid())
   email            String   @unique
@@ -25,25 +47,66 @@ model User {
   isActive         Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-}
-
-enum Dimension {
-  R
-  I
-  A
-  S
-  E
-  C
+  assessments      Assessment[]
 }
 
 model Question {
-  id          String     @id @default(cuid())
-  text        String     @unique
-  dimension   Dimension
-  ageBrackets String[]
-  version     Int        @default(1)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id           String       @id @default(uuid())
+  text         String
+  dimension    Dimension
+  age_brackets AgeBracket[]
+  version      Int          @default(1)
+  difficulty   Int?
+  tags         String[]
+  createdAt    DateTime     @default(now())
+  answers    AssessmentAnswer[]
+}
+
+model Assessment {
+  id                   String            @id @default(cuid())
+  userId               String
+  status               AssessmentStatus
+  startedAt            DateTime
+  completedAt          DateTime?
+  currentQuestionIndex Int              @default(0)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  user                 User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers              AssessmentAnswer[]
+  riasecResult         RiasecResult?
+}
+
+model AssessmentAnswer {
+  id           String     @id @default(cuid())
+  assessmentId String
+  questionId   String
+  value        Int?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  question     Question   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model RiasecResult {
+  id            String     @id @default(cuid())
+  assessmentId  String     @unique
+  scoreR        Float
+  scoreI        Float
+  scoreA        Float
+  scoreS        Float
+  scoreE        Float
+  scoreC        Float
+  normalizedR   Float
+  normalizedI   Float
+  normalizedA   Float
+  normalizedS   Float
+  normalizedE   Float
+  normalizedC   Float
+  top3          Dimension[]
+  profileCode   String
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 }
 
 model Occupation {
