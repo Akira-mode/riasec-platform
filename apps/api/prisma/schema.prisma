@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  etudiant
+  coach
+  admin
+}
+
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  passwordHash     String
+  role             Role     @default(etudiant)
+  ageBracket       String?
+  refreshTokenHash String?
+  activationToken  String?  @unique
+  activationExpires DateTime?
+  isActive         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+enum Dimension {
+  R
+  I
+  A
+  S
+  E
+  C
+}
+
+model Question {
+  id          String     @id @default(cuid())
+  text        String     @unique
+  dimension   Dimension
+  ageBrackets String[]
+  version     Int        @default(1)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Occupation {
+  code               String     @id
+  name               String
+  description        String?
+  primaryDimension   Dimension
+  secondaryDimension Dimension?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+}
